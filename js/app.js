@@ -11,7 +11,7 @@
     // =========================================================================
     const state = {
         currentStep: 1,
-        apiKey: localStorage.getItem('gemini_api_key') || '',
+        apiKey: sessionStorage.getItem('gemini_api_key') || '',
         
         // Step 1: Course Info
         courseInfo: {
@@ -275,7 +275,10 @@
             if (state.apiKey) {
                 window.GeminiOCR.setApiKey(state.apiKey);
                 const input = document.getElementById('apiKeyInput');
-                if (input) input.value = state.apiKey;
+                if (input) {
+    input.value = '';
+    input.placeholder = 'API Key đã được lưu — nhập key mới để thay thế';
+}
             }
         },
 
@@ -284,7 +287,10 @@
             const input = document.getElementById('apiKeyInput');
             if (modal) modal.classList.add('active');
             if (input) {
-                input.value = state.apiKey;
+                input.value = '';
+input.placeholder = state.apiKey
+    ? 'API Key đã được lưu — nhập key mới để thay thế'
+    : 'AIzaSy...';
                 input.focus();
             }
         },
@@ -298,7 +304,7 @@
                 return;
             }
             state.apiKey = key;
-            localStorage.setItem('gemini_api_key', key);
+            sessionStorage.setItem('gemini_api_key', key);
             window.GeminiOCR.setApiKey(key);
             document.getElementById('apiKeyModal').classList.remove('active');
             showToast('Đã lưu Gemini API Key thành công!', 'success');
