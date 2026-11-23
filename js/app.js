@@ -309,7 +309,25 @@ input.placeholder = state.apiKey
             document.getElementById('apiKeyModal').classList.remove('active');
             showToast('Đã lưu Gemini API Key thành công!', 'success');
         },
+        clearApiKey() {
+            state.apiKey = '';
+            sessionStorage.removeItem('gemini_api_key');
 
+            if (window.GeminiOCR) {
+                window.GeminiOCR.setApiKey('');
+            }
+
+            const input = document.getElementById('apiKeyInput');
+            if (input) {
+                input.value = '';
+                input.placeholder = 'AIzaSy...';
+            }
+
+            const modal = document.getElementById('apiKeyModal');
+            if (modal) modal.classList.remove('active');
+
+            showToast('Đã xóa API Key khỏi phiên làm việc.', 'success');
+        },
         ensureApiKey() {
             if (!state.apiKey) {
                 this.showApiKeyModal();
