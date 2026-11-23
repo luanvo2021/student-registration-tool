@@ -11,7 +11,7 @@
     // =========================================================================
     const state = {
         currentStep: 1,
-        apiKey: sessionStorage.getItem('gemini_api_key') || '',
+        apiKey: sessionStorage.getItem('gemini_api_key') || localStorage.getItem('gemini_api_key') || '',
         
         // Step 1: Course Info
         courseInfo: {
@@ -292,6 +292,10 @@
         // API Key Modal
         // ---------------------------------------------------------------------
         loadApiKey() {
+            const rememberedKey = localStorage.getItem('gemini_api_key');
+            const rememberInput = document.getElementById('rememberApiKey');
+            if (rememberInput) rememberInput.checked = Boolean(rememberedKey);
+
             if (state.apiKey) {
                 window.GeminiOCR.setApiKey(state.apiKey);
                 const input = document.getElementById('apiKeyInput');
@@ -305,7 +309,9 @@
         showApiKeyModal() {
             const modal = document.getElementById('apiKeyModal');
             const input = document.getElementById('apiKeyInput');
+            const rememberInput = document.getElementById('rememberApiKey');
             if (modal) modal.classList.add('active');
+            if (rememberInput) rememberInput.checked = Boolean(localStorage.getItem('gemini_api_key'));
             if (input) {
                 input.value = '';
 input.placeholder = state.apiKey
@@ -324,14 +330,22 @@ input.placeholder = state.apiKey
                 return;
             }
             state.apiKey = key;
-            sessionStorage.setItem('gemini_api_key', key);
+            const rememberKey = Boolean(document.getElementById('rememberApiKey')?.checked);
+            if (rememberKey) {
+                localStorage.setItem('gemini_api_key', key);
+                sessionStorage.removeItem('gemini_api_key');
+            } else {
+                sessionStorage.setItem('gemini_api_key', key);
+                localStorage.removeItem('gemini_api_key');
+            }
             window.GeminiOCR.setApiKey(key);
             document.getElementById('apiKeyModal').classList.remove('active');
-            showToast('Đã lưu Gemini API Key thành công!', 'success');
+            showToast(rememberKey ? 'Đã ghi nhớ Gemini API Key trên thiết bị này!' : 'Đã lưu Gemini API Key cho phiên hiện tại!', 'success');
         },
         clearApiKey() {
             state.apiKey = '';
             sessionStorage.removeItem('gemini_api_key');
+            localStorage.removeItem('gemini_api_key');
 
             if (window.GeminiOCR) {
                 window.GeminiOCR.setApiKey('');
@@ -342,11 +356,13 @@ input.placeholder = state.apiKey
                 input.value = '';
                 input.placeholder = 'AIzaSy...';
             }
+            const rememberInput = document.getElementById('rememberApiKey');
+            if (rememberInput) rememberInput.checked = false;
 
             const modal = document.getElementById('apiKeyModal');
             if (modal) modal.classList.remove('active');
 
-            showToast('Đã xóa API Key khỏi phiên làm việc.', 'success');
+            showToast('Đã xóa API Key khỏi trình duyệt.', 'success');
         },
         ensureApiKey() {
             if (!state.apiKey) {
