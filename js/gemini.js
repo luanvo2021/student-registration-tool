@@ -12,8 +12,12 @@
     const GEMINI_ENDPOINT =
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-    const MAX_RETRIES = 1;
-    const RETRY_DELAY_MS = 1500;
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY_MS = 1800;
+    const IMAGE_LIMITS = {
+        schedule: { maxSide: 2200, quality: 0.88 },
+        cccd: { maxSide: 2000, quality: 0.92 },
+    };
 
     /* ------------------------------------------------------------------ */
     /*  Utility helpers                                                    */
@@ -55,6 +59,17 @@
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
+    function normalizeDate(value) {
+        const text = String(value || '').trim();
+        const match = text.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+        if (!match) return text;
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const year = Number(match[3]);
+        if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 2100) return '';
+        return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+    }
+
     /* ------------------------------------------------------------------ */
     /*  GeminiOCR public interface                                         */
     /* ------------------------------------------------------------------ */
@@ -93,6 +108,44 @@
             });
         },
 
+        /**
+         * Resize large camera images before uploading. This reduces request size
+         * dramatically while keeping enough detail for Vietnamese text and the
+         * 12-digit CCCD number. Small images are left untouched.
+         */
+        async prepareImage(file, kind) {
+            const limits = IMAGE_LIMITS[kind] || IMAGE_LIMITS.cccd;
+            if (!file || !String(file.type || '').startsWith('image/')) {
+                return { base64Data: await this.fileToBase64(file), mimeType: file?.type || 'image/jpeg' };
+            }
+
+            const bitmap = await createImageBitmap(file);
+            const longest = Math.max(bitmap.width, bitmap.height);
+            if (longest <= limits.maxSide && file.size <= 1.5 * 1024 * 1024) {
+                bitmap.close();
+                return { base64Data: await this.fileToBase64(file), mimeType: file.type || 'image/jpeg' };
+            }
+
+            const scale = Math.min(1, limits.maxSide / longest);
+            const width = Math.max(1, Math.round(bitmap.width * scale));
+            const height = Math.max(1, Math.round(bitmap.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d', { alpha: false });
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(bitmap, 0, 0, width, height);
+            bitmap.close();
+
+            const blob = await new Promise((resolve, reject) => {
+                canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Không thể tối ưu ảnh.')), 'image/jpeg', limits.quality);
+            });
+            return { base64Data: await this.fileToBase64(blob), mimeType: 'image/jpeg' };
+        },
+
         /* -------------------------------------------------------------- */
         /*  callGemini (low-level)                                          */
         /* -------------------------------------------------------------- */
@@ -129,7 +182,12 @@
                                 m.supportedGenerationMethods.includes('generateContent')
                             ) {
                                 const cleanName = m.name.replace(/^models\//, '');
-                                discovered.push(cleanName);
+                                if (
+                                    /^gemini-/i.test(cleanName) &&
+                                    !/(image|tts|audio|robotics|embedding|aqa)/i.test(cleanName)
+                                ) {
+                                    discovered.push(cleanName);
+                                }
                             }
                         });
                     }
@@ -143,8 +201,15 @@
             if (discovered.length > 0) {
                 // Prioritize flash models, then pro
                 discovered.sort((a, b) => {
-                    const aScore = a.includes('flash') ? 2 : (a.includes('pro') ? 1 : 0);
-                    const bScore = b.includes('flash') ? 2 : (b.includes('pro') ? 1 : 0);
+                    const score = (name) => {
+                        if (/2\.5-flash(?!.*lite)/i.test(name) && !/preview|exp/i.test(name)) return 100;
+                        if (/2\.0-flash/i.test(name) && !/preview|exp/i.test(name)) return 90;
+                        if (/flash/i.test(name) && !/preview|exp/i.test(name)) return 70;
+                        if (/pro/i.test(name) && !/preview|exp/i.test(name)) return 40;
+                        return 10;
+                    };
+                    const aScore = score(a);
+                    const bScore = score(b);
                     return bScore - aScore;
                 });
                 console.log('Các model khả dụng cho API Key này:', discovered);
@@ -173,7 +238,7 @@
          * @param {string} prompt      Text prompt
          * @returns {Promise<string>}  The model's text response
          */
-        async callGemini(base64Data, mimeType, prompt) {
+        async callGemini(base64Data, mimeType, prompt, responseSchema) {
             if (!this.apiKey) {
                 throw new Error('API key chưa được thiết lập. Vui lòng nhập API key trước.');
             }
@@ -199,7 +264,8 @@
                 ],
                 generationConfig: {
                     responseMimeType: 'application/json',
-                    temperature: 0.1,
+                    temperature: 0,
+                    ...(responseSchema ? { responseSchema } : {}),
                 },
             };
 
@@ -289,11 +355,11 @@
          * Wrapper around callGemini that retries once on transient failures.
          * @private
          */
-        async _callWithRetry(base64Data, mimeType, prompt) {
+        async _callWithRetry(base64Data, mimeType, prompt, responseSchema) {
             let lastError;
             for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
                 try {
-                    return await this.callGemini(base64Data, mimeType, prompt);
+                    return await this.callGemini(base64Data, mimeType, prompt, responseSchema);
                 } catch (err) {
                     lastError = err;
                     // Don't retry on auth errors – they won't self-resolve
@@ -304,7 +370,7 @@
                         throw err;
                     }
                     if (attempt < MAX_RETRIES) {
-                        await delay(RETRY_DELAY_MS);
+                        await delay(RETRY_DELAY_MS * Math.pow(2, attempt));
                     }
                 }
             }
@@ -323,14 +389,16 @@
          * @returns {Promise<{students: Array<{name: string, company: string}>, rawText: string}>}
          */
         async extractSchedule(imageFile) {
-            const base64Data = await this.fileToBase64(imageFile);
-            const mimeType = imageFile.type || 'image/jpeg';
+            const { base64Data, mimeType } = await this.prepareImage(imageFile, 'schedule');
 
             const prompt = `Bạn là trợ lý OCR chuyên nghiệp xử lý văn bản tiếng Việt. Hãy phân tích ảnh lịch đào tạo / danh sách lớp học này và trích xuất tất cả học viên kèm theo tên Công ty / Đơn vị tương ứng của từng người.
 
 Yêu cầu cụ thể:
 1. Trích xuất TẤT CẢ học viên có trong danh sách / bảng.
 2. Với mỗi học viên, đọc chính xác thông tin Công ty / Đơn vị tương ứng trong bảng.
+3. Đọc theo từng dòng từ trên xuống dưới và giữ nguyên thứ tự xuất hiện.
+4. Không lấy tiêu đề, giảng viên, trợ giảng, chữ ký hoặc người phê duyệt làm học viên.
+5. Soát lại số dòng trong bảng trước khi trả kết quả; không tự thêm tên không nhìn thấy rõ.
 
 LƯU Ý CỰC KỲ QUAN TRỌNG VỀ CÔNG TY (COMPANY):
 - Nếu cột Công ty có ô gộp dòng (merged cell) hoặc chỉ có 1 tên công ty duy nhất áp dụng chung cho cả khối danh sách (ví dụ ô lớn ghi 'PTSC MC' hoặc 'PTSC M&C'), thì TẤT CẢ các học viên trong danh sách đó ĐỀU THUỘC CÔNG TY ĐÓ!
@@ -350,12 +418,37 @@ Lưu ý:
 - Giữ nguyên tên in hoa hoặc chữ hoa chuẩn.
 - Chỉ trả về JSON, không thêm bất kỳ văn bản nào khác.`;
 
-            const rawText = await this._callWithRetry(base64Data, mimeType, prompt);
+            const schema = {
+                type: 'OBJECT',
+                properties: {
+                    students: {
+                        type: 'ARRAY',
+                        items: {
+                            type: 'OBJECT',
+                            properties: {
+                                name: { type: 'STRING' },
+                                company: { type: 'STRING' }
+                            },
+                            required: ['name', 'company']
+                        }
+                    }
+                },
+                required: ['students']
+            };
+
+            const rawText = await this._callWithRetry(base64Data, mimeType, prompt, schema);
 
             try {
                 const parsed = safeParseJSON(rawText);
                 return {
-                    students: Array.isArray(parsed.students) ? parsed.students : [],
+                    students: Array.isArray(parsed.students)
+                        ? parsed.students
+                            .map(s => ({
+                                name: String(s.name || '').replace(/\s+/g, ' ').trim(),
+                                company: String(s.company || '').replace(/\s+/g, ' ').trim()
+                            }))
+                            .filter(s => s.name.length >= 3)
+                        : [],
                     rawText,
                 };
             } catch (parseErr) {
@@ -377,8 +470,7 @@ Lưu ý:
          * @returns {Promise<{cards: Array<{name: string, dob: string, idNumber: string}>, rawText: string}>}
          */
         async extractCCCD(imageFile) {
-            const base64Data = await this.fileToBase64(imageFile);
-            const mimeType = imageFile.type || 'image/jpeg';
+            const { base64Data, mimeType } = await this.prepareImage(imageFile, 'cccd');
 
             const prompt = `Bạn là trợ lý OCR chuyên nghiệp xử lý Căn cước công dân (CCCD) Việt Nam. Hãy phân tích ảnh này và trích xuất TẤT CẢ các thẻ Căn cước công dân (CCCD) / Căn cước / Thông tin thẻ CCCD hiển thị trên màn hình điện thoại có trong ảnh.
 
@@ -389,6 +481,9 @@ LƯU Ý CỰC KỲ QUAN TRỌNG:
   1. idNumber: Số định danh cá nhân / Số CCCD (đủ 12 chữ số)
   2. name: Họ và tên / Họ, chữ đệm và tên (giữ nguyên tiếng Việt có dấu, in hoa)
   3. dob: Ngày, tháng, năm sinh (định dạng chuẩn DD/MM/YYYY)
+- Phóng to và đọc lại riêng vùng 12 chữ số. idNumber bắt buộc phải có đúng 12 chữ số; không suy đoán chữ số bị che hoặc bị mờ.
+- Đối chiếu nhãn tiếng Việt và tiếng Anh trên thẻ để không nhầm ngày sinh với ngày hết hạn.
+- Không lấy số nằm trong mã QR, dòng MRZ hoặc số điện thoại làm số CCCD.
 
 Định dạng JSON trả về (BẮT BUỘC theo cấu trúc mảng cards):
 {
@@ -409,7 +504,26 @@ LƯU Ý CỰC KỲ QUAN TRỌNG:
 Nếu chỉ có 1 thẻ CCCD trong ảnh, mảng "cards" sẽ có 1 phần tử.
 Chỉ trả về JSON thuần túy, không có markdown hoặc giải thích thêm.`;
 
-            const rawText = await this._callWithRetry(base64Data, mimeType, prompt);
+            const schema = {
+                type: 'OBJECT',
+                properties: {
+                    cards: {
+                        type: 'ARRAY',
+                        items: {
+                            type: 'OBJECT',
+                            properties: {
+                                idNumber: { type: 'STRING' },
+                                name: { type: 'STRING' },
+                                dob: { type: 'STRING' }
+                            },
+                            required: ['idNumber', 'name', 'dob']
+                        }
+                    }
+                },
+                required: ['cards']
+            };
+
+            const rawText = await this._callWithRetry(base64Data, mimeType, prompt, schema);
 
             try {
                 const parsed = safeParseJSON(rawText);
@@ -424,11 +538,14 @@ Chỉ trả về JSON thuần túy, không có markdown hoặc giải thích th�
                 }
 
                 // Clean and normalize each card
-                const cleanCards = cards.map(c => ({
-                    name: (c.name || '').toUpperCase().trim(),
-                    dob: (c.dob || '').trim(),
-                    idNumber: (c.idNumber || '').replace(/\D/g, '').trim()
-                })).filter(c => c.name || c.idNumber);
+                const cleanCards = cards.map(c => {
+                    const digits = String(c.idNumber || '').replace(/\D/g, '');
+                    return {
+                        name: String(c.name || '').toUpperCase().replace(/\s+/g, ' ').trim(),
+                        dob: normalizeDate(c.dob),
+                        idNumber: digits.length === 12 ? digits : ''
+                    };
+                }).filter(c => c.name || c.idNumber);
 
                 return {
                     cards: cleanCards,
