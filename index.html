@@ -22,7 +22,11 @@
                 <label for="apiKeyInput">API Key</label>
                 <input type="password" id="apiKeyInput" placeholder="AIzaSy..." autocomplete="off">
             </div>
-            <p class="hint">🔒 API Key chỉ được lưu tạm trong phiên làm việc và chỉ được gửi đến Google Gemini API.</p>
+            <label class="remember-api-key">
+                <input type="checkbox" id="rememberApiKey">
+                Ghi nhớ API Key trên thiết bị này
+            </label>
+            <p class="hint">🔒 Nếu không chọn ghi nhớ, API Key chỉ được lưu trong phiên làm việc hiện tại.</p>
             <div class="modal-actions">
                 <button class="btn btn-primary" onclick="App.saveApiKey()">
                     <span class="material-icons-outlined">save</span> Lưu
