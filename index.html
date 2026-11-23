@@ -22,11 +22,14 @@
                 <label for="apiKeyInput">API Key</label>
                 <input type="password" id="apiKeyInput" placeholder="AIzaSy..." autocomplete="off">
             </div>
-            <p class="hint">🔒 API Key được lưu trên trình duyệt của bạn, không gửi đi đâu khác ngoài Google API.</p>
+            <p class="hint">🔒 API Key chỉ được lưu tạm trong phiên làm việc và chỉ được gửi đến Google Gemini API.</p>
             <div class="modal-actions">
                 <button class="btn btn-primary" onclick="App.saveApiKey()">
                     <span class="material-icons-outlined">save</span> Lưu
                 </button>
+                <button class="btn btn-secondary" type="button" onclick="App.clearApiKey()">
+    <span class="material-icons-outlined">delete</span> Xóa API Key
+</button>
             </div>
         </div>
     </div>
