@@ -775,6 +775,9 @@
                         <button class="btn btn-ghost btn-sm" onclick="App.openLightbox('${item.url}', '${item.name}')" title="Xem ảnh">
                             <span class="material-icons-outlined">visibility</span>
                         </button>
+                        <button class="btn btn-secondary btn-sm" onclick="App.retryCCCDFile('${item.id}')" title="Quét lại ảnh này" ${item.status === 'processing' ? 'disabled' : ''}>
+                            <span class="material-icons-outlined">refresh</span>
+                        </button>
                         <button class="btn btn-danger btn-sm" onclick="App.removeCCCDFile('${item.id}')" title="Xóa ảnh này">
                             <span class="material-icons-outlined">delete</span>
                         </button>
@@ -806,6 +809,29 @@
         async scanCCCDImages() {
             // Re-scan all ready or all files
             await this.scanCCCDItems(state.cccdFiles);
+        },
+
+        async retryCCCDFile(fileId) {
+            const item = state.cccdFiles.find(file => file.id === fileId);
+            if (!item) {
+                showToast('Không tìm thấy ảnh CCCD cần quét lại.', 'warning');
+                return;
+            }
+            if (item.status === 'processing') {
+                showToast('Ảnh này đang được quét. Vui lòng chờ hoàn tất.', 'info');
+                return;
+            }
+
+            item.errorMessage = '';
+            showToast(`Đang quét lại ảnh "${item.name}"...`, 'info');
+            await this.scanCCCDItems([item]);
+            if (item.status === 'done') {
+                showToast(
+                    `Đã cập nhật kết quả từ "${item.name}" (${item.cardCount || 0} thẻ CCCD).`,
+                    item.cardCount > 0 ? 'success' : 'warning',
+                    5000
+                );
+            }
         },
 
         async scanCCCDItems(itemsToScan) {
@@ -863,6 +889,7 @@
             // Re-match against schedule
             this.performMatching();
             this.renderMatchingResults();
+            if (state.currentStep === 4) this.renderPreview();
         },
 
         performMatching() {
