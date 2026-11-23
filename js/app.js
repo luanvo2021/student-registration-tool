@@ -11,7 +11,7 @@
     // =========================================================================
     const state = {
         currentStep: 1,
-        apiKey: localStorage.getItem('gemini_api_key') || '',
+        apiKey: sessionStorage.getItem('gemini_api_key') || '',
         
         // Step 1: Course Info
         courseInfo: {
@@ -52,6 +52,19 @@
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function encodeInlineValue(value) {
+        return encodeURIComponent(String(value == null ? '' : value)).replace(/'/g, '%27');
     }
 
     /**
@@ -143,11 +156,18 @@
         if (type === 'warning') iconName = 'warning';
         if (type === 'error') iconName = 'error';
 
-        toast.innerHTML = `
-            <span class="material-icons-outlined toast-icon">${iconName}</span>
-            <div class="toast-message">${message}</div>
-            <button class="toast-close material-icons-outlined" onclick="this.parentElement.remove()">close</button>
-        `;
+        const icon = document.createElement('span');
+        icon.className = 'material-icons-outlined toast-icon';
+        icon.textContent = iconName;
+        const messageElement = document.createElement('div');
+        messageElement.className = 'toast-message';
+        messageElement.textContent = String(message || '');
+        const closeButton = document.createElement('button');
+        closeButton.className = 'toast-close material-icons-outlined';
+        closeButton.type = 'button';
+        closeButton.textContent = 'close';
+        closeButton.addEventListener('click', () => toast.remove());
+        toast.append(icon, messageElement, closeButton);
 
         container.appendChild(toast);
 
@@ -275,7 +295,10 @@
             if (state.apiKey) {
                 window.GeminiOCR.setApiKey(state.apiKey);
                 const input = document.getElementById('apiKeyInput');
-                if (input) input.value = state.apiKey;
+                if (input) {
+    input.value = '';
+    input.placeholder = 'API Key đã được lưu — nhập key mới để thay thế';
+}
             }
         },
 
@@ -284,7 +307,10 @@
             const input = document.getElementById('apiKeyInput');
             if (modal) modal.classList.add('active');
             if (input) {
-                input.value = state.apiKey;
+                input.value = '';
+input.placeholder = state.apiKey
+    ? 'API Key đã được lưu — nhập key mới để thay thế'
+    : 'AIzaSy...';
                 input.focus();
             }
         },
@@ -298,12 +324,30 @@
                 return;
             }
             state.apiKey = key;
-            localStorage.setItem('gemini_api_key', key);
+            sessionStorage.setItem('gemini_api_key', key);
             window.GeminiOCR.setApiKey(key);
             document.getElementById('apiKeyModal').classList.remove('active');
             showToast('Đã lưu Gemini API Key thành công!', 'success');
         },
+        clearApiKey() {
+            state.apiKey = '';
+            sessionStorage.removeItem('gemini_api_key');
 
+            if (window.GeminiOCR) {
+                window.GeminiOCR.setApiKey('');
+            }
+
+            const input = document.getElementById('apiKeyInput');
+            if (input) {
+                input.value = '';
+                input.placeholder = 'AIzaSy...';
+            }
+
+            const modal = document.getElementById('apiKeyModal');
+            if (modal) modal.classList.remove('active');
+
+            showToast('Đã xóa API Key khỏi phiên làm việc.', 'success');
+        },
         ensureApiKey() {
             if (!state.apiKey) {
                 this.showApiKeyModal();
@@ -460,28 +504,31 @@
                 } else if (item.status === 'processing') {
                     statusBadge = '<span class="status-badge" style="background:#dbeafe; color:#1e40af;">Đang quét...</span>';
                 } else if (item.status === 'done') {
-                    statusBadge = `<span class="status-badge matched">Đã nhận diện (${item.studentCount} người)</span>`;
+                    statusBadge = `<span class="status-badge matched">Đã nhận diện (${Number(item.studentCount) || 0} người)</span>`;
                 } else if (item.status === 'error') {
-                    statusBadge = `<span class="status-badge missing" title="${item.errorMessage || 'Lỗi quét'}">Lỗi quét</span>`;
+                    statusBadge = `<span class="status-badge missing" title="${escapeHtml(item.errorMessage || 'Lỗi quét')}">Lỗi quét</span>`;
                 }
+
+                const safeUrl = encodeInlineValue(item.url);
+                const safeName = encodeInlineValue(item.name);
 
                 tr.innerHTML = `
                     <td style="text-align: center; color: var(--gray-500); font-weight: 500;">${index + 1}</td>
                     <td>
-                        <div class="file-thumb-wrapper" onclick="App.openLightbox('${item.url}', '${item.name}')" title="Nhấn để xem ảnh phóng to">
-                            <img src="${item.url}" alt="${item.name}">
+                        <div class="file-thumb-wrapper" onclick="App.openLightbox(decodeURIComponent('${safeUrl}'), decodeURIComponent('${safeName}'))" title="Nhấn để xem ảnh phóng to">
+                            <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.name)}">
                         </div>
                     </td>
                     <td>
                         <div class="file-name-cell">
-                            <span>${item.name}</span>
-                            <span class="file-badge">${item.file.type || 'image/png'}</span>
+                            <span>${escapeHtml(item.name)}</span>
+                            <span class="file-badge">${escapeHtml(item.file.type || 'image/png')}</span>
                         </div>
                     </td>
                     <td style="color: var(--gray-600);">${formatFileSize(item.size)}</td>
                     <td>${statusBadge}</td>
                     <td style="text-align: center;">
-                        <button class="btn btn-ghost btn-sm" onclick="App.openLightbox('${item.url}', '${item.name}')" title="Xem ảnh">
+                        <button class="btn btn-ghost btn-sm" onclick="App.openLightbox(decodeURIComponent('${safeUrl}'), decodeURIComponent('${safeName}'))" title="Xem ảnh">
                             <span class="material-icons-outlined">visibility</span>
                         </button>
                         <button class="btn btn-danger btn-sm" onclick="App.removeScheduleFile('${item.id}')" title="Xóa ảnh này">
@@ -494,6 +541,8 @@
         },
 
         removeScheduleFile(fileId) {
+            const removed = state.scheduleFiles.find(f => f.id === fileId);
+            if (removed?.url) URL.revokeObjectURL(removed.url);
             state.scheduleFiles = state.scheduleFiles.filter(f => f.id !== fileId);
             this.renderScheduleFilesTable();
             showToast('Đã xóa ảnh lịch học.', 'info');
@@ -501,6 +550,9 @@
 
         clearScheduleFiles() {
             if (confirm('Bạn có chắc muốn xóa tất cả ảnh lịch học đã nạp?')) {
+                state.scheduleFiles.forEach(item => {
+                    if (item.url) URL.revokeObjectURL(item.url);
+                });
                 state.scheduleFiles = [];
                 state.students = [];
                 this.renderScheduleFilesTable();
@@ -619,10 +671,10 @@
                 el.innerHTML = `
                     <div class="item-number">${student.no}</div>
                     <div class="item-name" id="name_display_${student.id}">
-                        <strong>${student.name}</strong>
+                        <strong>${escapeHtml(student.name)}</strong>
                     </div>
                     <div class="item-company" id="company_display_${student.id}" style="color: var(--primary); font-weight: 500;">
-                        ${student.company || '<span style="color: var(--gray-400);">(Chưa có cty)</span>'}
+                        ${student.company ? escapeHtml(student.company) : '<span style="color: var(--gray-400);">(Chưa có cty)</span>'}
                     </div>
                     <div class="item-actions">
                         <button class="btn btn-ghost btn-sm" title="Sửa tên / công ty" onclick="App.editStudent('${student.id}')">
@@ -753,26 +805,29 @@
                     const count = item.cardCount !== undefined ? item.cardCount : 1;
                     statusBadge = `<span class="status-badge matched">Đã đọc (${count} thẻ CCCD)</span>`;
                 } else if (item.status === 'error') {
-                    statusBadge = `<span class="status-badge missing" title="${item.errorMessage || ''}">Lỗi đọc</span>`;
+                    statusBadge = `<span class="status-badge missing" title="${escapeHtml(item.errorMessage || '')}">Lỗi đọc</span>`;
                 }
+
+                const safeUrl = encodeInlineValue(item.url);
+                const safeName = encodeInlineValue(item.name);
 
                 tr.innerHTML = `
                     <td style="text-align: center; color: var(--gray-500); font-weight: 500;">${index + 1}</td>
                     <td>
-                        <div class="file-thumb-wrapper" onclick="App.openLightbox('${item.url}', '${item.name}')" title="Nhấn để xem ảnh phóng to">
-                            <img src="${item.url}" alt="${item.name}">
+                        <div class="file-thumb-wrapper" onclick="App.openLightbox(decodeURIComponent('${safeUrl}'), decodeURIComponent('${safeName}'))" title="Nhấn để xem ảnh phóng to">
+                            <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.name)}">
                         </div>
                     </td>
                     <td>
                         <div class="file-name-cell">
-                            <span>${item.name}</span>
-                            <span class="file-badge">${item.file.type || 'image/png'}</span>
+                            <span>${escapeHtml(item.name)}</span>
+                            <span class="file-badge">${escapeHtml(item.file.type || 'image/png')}</span>
                         </div>
                     </td>
                     <td style="color: var(--gray-600);">${formatFileSize(item.size)}</td>
                     <td>${statusBadge}</td>
                     <td style="text-align: center;">
-                        <button class="btn btn-ghost btn-sm" onclick="App.openLightbox('${item.url}', '${item.name}')" title="Xem ảnh">
+                        <button class="btn btn-ghost btn-sm" onclick="App.openLightbox(decodeURIComponent('${safeUrl}'), decodeURIComponent('${safeName}'))" title="Xem ảnh">
                             <span class="material-icons-outlined">visibility</span>
                         </button>
                         <button class="btn btn-secondary btn-sm" onclick="App.retryCCCDFile('${item.id}')" title="Quét lại ảnh này" ${item.status === 'processing' ? 'disabled' : ''}>
@@ -788,6 +843,8 @@
         },
 
         removeCCCDFile(fileId) {
+            const removed = state.cccdFiles.find(f => f.id === fileId);
+            if (removed?.url) URL.revokeObjectURL(removed.url);
             state.cccdFiles = state.cccdFiles.filter(f => f.id !== fileId);
             state.extractedCCCDs = state.extractedCCCDs.filter(e => e.fileId !== fileId);
             this.renderCCCDFilesTable();
@@ -798,6 +855,9 @@
 
         clearCCCDFiles() {
             if (confirm('Bạn có chắc muốn xóa tất cả ảnh CCCD đã nạp?')) {
+                state.cccdFiles.forEach(item => {
+                    if (item.url) URL.revokeObjectURL(item.url);
+                });
                 state.cccdFiles = [];
                 state.extractedCCCDs = [];
                 this.renderCCCDFilesTable();
@@ -948,13 +1008,13 @@
 
                 const icon = student.matched ? 'check_circle' : 'warning';
                 const statusText = student.matched 
-                    ? `Đã khớp CCCD • Ngày sinh: <strong>${student.dob || 'Chưa rõ'}</strong> • Số: <strong>${student.idNumber || 'Chưa rõ'}</strong>`
+                    ? `Đã khớp CCCD • Ngày sinh: <strong>${escapeHtml(student.dob || 'Chưa rõ')}</strong> • Số: <strong>${escapeHtml(student.idNumber || 'Chưa rõ')}</strong>`
                     : `<span style="color: var(--danger); font-weight: 500;">Chưa có CCCD (sẽ để trống trong form)</span>`;
 
                 item.innerHTML = `
                     <div class="match-icon material-icons-outlined">${icon}</div>
                     <div class="match-info">
-                        <div class="match-name">${student.no}. ${student.name} <span style="font-weight: normal; color: var(--gray-500);">(${student.company || 'Chưa có cty'})</span></div>
+                        <div class="match-name">${Number(student.no) || 0}. ${escapeHtml(student.name)} <span style="font-weight: normal; color: var(--gray-500);">(${escapeHtml(student.company || 'Chưa có cty')})</span></div>
                         <div class="match-details">${statusText}</div>
                     </div>
                 `;
@@ -968,13 +1028,13 @@
 
                 if (state.missingStudents.length > 0) {
                     state.missingStudents.forEach(s => {
-                        html += `<li><strong>${s.name}</strong> (${s.company || '---'}) có tên trong danh sách nhưng không tìm thấy ảnh CCCD tương ứng. Thông tin ngày sinh và số CCCD sẽ để trống.</li>`;
+                        html += `<li><strong>${escapeHtml(s.name)}</strong> (${escapeHtml(s.company || '---')}) có tên trong danh sách nhưng không tìm thấy ảnh CCCD tương ứng. Thông tin ngày sinh và số CCCD sẽ để trống.</li>`;
                     });
                 }
 
                 if (state.unmatchedCCCDs.length > 0) {
                     state.unmatchedCCCDs.forEach(c => {
-                        html += `<li>Ảnh CCCD tên "<strong>${c.name || 'Không rõ tên'}</strong>" (Số: ${c.idNumber || '---'}) không khớp với học viên nào trong lịch học.</li>`;
+                        html += `<li>Ảnh CCCD tên "<strong>${escapeHtml(c.name || 'Không rõ tên')}</strong>" (Số: ${escapeHtml(c.idNumber || '---')}) không khớp với học viên nào trong lịch học.</li>`;
                     });
                 }
 
@@ -1017,16 +1077,16 @@
                 tr.innerHTML = `
                     <td class="col-no">${student.no}</td>
                     <td class="col-name">
-                        <input type="text" value="${student.name}" onchange="App.updateStudentField(${idx}, 'name', this.value)">
+                        <input type="text" value="${escapeHtml(student.name)}" onchange="App.updateStudentField(${idx}, 'name', this.value)">
                     </td>
                     <td class="col-company">
-                        <input type="text" value="${student.company || ''}" placeholder="Nhập công ty..." onchange="App.updateStudentField(${idx}, 'company', this.value)">
+                        <input type="text" value="${escapeHtml(student.company || '')}" placeholder="Nhập công ty..." onchange="App.updateStudentField(${idx}, 'company', this.value)">
                     </td>
                     <td class="col-dob">
-                        <input type="text" value="${student.dob}" placeholder="DD/MM/YYYY" onchange="App.updateStudentField(${idx}, 'dob', this.value)">
+                        <input type="text" value="${escapeHtml(student.dob)}" placeholder="DD/MM/YYYY" onchange="App.updateStudentField(${idx}, 'dob', this.value)">
                     </td>
                     <td class="col-id">
-                        <input type="text" value="${student.idNumber}" placeholder="012345678901" onchange="App.updateStudentField(${idx}, 'idNumber', this.value)">
+                        <input type="text" value="${escapeHtml(student.idNumber)}" placeholder="012345678901" onchange="App.updateStudentField(${idx}, 'idNumber', this.value)">
                     </td>
                     <td class="col-status">
                         <span class="status-badge ${isMatched ? 'matched' : 'missing'}">
@@ -1047,7 +1107,7 @@
                             <span class="material-icons-outlined">warning</span>
                             Có ${missing.length} học viên chưa có thông tin CCCD (sẽ để trống trong file Word hoặc bạn có thể nhập trực tiếp ở bảng trên):
                         </div>
-                        <div>${missing.map(m => `<strong>${m.name}</strong>`).join(', ')}</div>
+                        <div>${missing.map(m => `<strong>${escapeHtml(m.name)}</strong>`).join(', ')}</div>
                     `;
                 } else {
                     previewWarnings.style.display = 'none';
