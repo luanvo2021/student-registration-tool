@@ -376,6 +376,10 @@ input.placeholder = state.apiKey
         // ---------------------------------------------------------------------
         // Step Navigation
         // ---------------------------------------------------------------------
+        previousStep() {
+            this.goToStep(Math.max(1, state.currentStep - 1));
+        },
+
         goToStep(stepNumber) {
             if (stepNumber < 1 || stepNumber > 4) return;
 
@@ -407,6 +411,10 @@ input.placeholder = state.apiKey
             if (targetPanel) targetPanel.classList.add('active');
 
             state.currentStep = stepNumber;
+            const mobileSteps = document.getElementById('mobileSteps');
+            if (mobileSteps) mobileSteps.open = false;
+            const backButton = document.querySelector('.mobile-navigation > button');
+            if (backButton) backButton.disabled = stepNumber === 1;
             this.updateNav();
             window.scrollTo({ top: 0, behavior: 'smooth' });
         },
