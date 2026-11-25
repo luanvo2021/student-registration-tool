@@ -79,6 +79,19 @@
 
         <!-- Main Content -->
         <main class="main-content">
+            <div class="mobile-navigation">
+                <button type="button" class="btn btn-secondary" onclick="App.previousStep()">← Bước trước</button>
+                <details id="mobileSteps">
+                    <summary>Các bước ☰</summary>
+                    <nav aria-label="Các bước trên điện thoại">
+                        <button type="button" onclick="App.goToStep(1)">1. Thông tin khóa học</button>
+                        <button type="button" onclick="App.goToStep(2)">2. Schedule</button>
+                        <button type="button" onclick="App.goToStep(3)">3. CCCD</button>
+                        <button type="button" onclick="App.goToStep(4)">4. Xem trước và xuất</button>
+                        <button type="button" onclick="App.showApiKeyModal()">Cài đặt API Key</button>
+                    </nav>
+                </details>
+            </div>
             <!-- Step 1: Course Info -->
             <section id="step1" class="step-panel active">
                 <div class="step-header">
