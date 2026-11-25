@@ -813,7 +813,13 @@ body {
 }
 
 /* ===== Responsive ===== */
+.mobile-navigation { display: none; }
 @media (max-width: 1024px) {
+    .mobile-navigation { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; position: sticky; top: 0; z-index: 50; background: white; padding: 10px 0; margin-bottom: 12px; }
+    .mobile-navigation details { position: relative; }
+    .mobile-navigation summary { cursor: pointer; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; }
+    .mobile-navigation nav { position: absolute; right: 0; top: 100%; width: 260px; max-width: 80vw; padding: 8px; background: white; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 6px 20px #0002; }
+    .mobile-navigation nav button { display: block; width: 100%; min-height: 44px; text-align: left; border: 0; background: white; padding: 10px; font: inherit; color: #172033; cursor: pointer; }
     .sidebar { display: none; }
     .main-content { margin-left: 0; padding: 20px; }
 }
